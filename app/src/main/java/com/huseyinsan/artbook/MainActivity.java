@@ -42,7 +42,7 @@ public class MainActivity extends AppCompatActivity {
         artArrayList = new ArrayList<>();
 
         binding.recyclerView.setLayoutManager(new LinearLayoutManager(this));
-        artAdapter = new ArtAdapter(artArrayList);
+        artAdapter = new ArtAdapter(artArrayList,this);
         binding.recyclerView.setAdapter(artAdapter);
 
         getData();
@@ -70,6 +70,18 @@ public class MainActivity extends AppCompatActivity {
             artAdapter.notifyDataSetChanged();
             cursor.close();
         }catch(Exception e){
+            e.printStackTrace();
+        }
+    }
+
+    public void deleteArt(int id,int position){
+        try {
+            SQLiteDatabase sqLiteDatabase = this.openOrCreateDatabase("Arts", MODE_PRIVATE, null);
+            sqLiteDatabase.execSQL("DELETE FROM arts WHERE id = ?",new String[] {String.valueOf(id)});
+            artArrayList.remove(position);
+            artAdapter.notifyDataSetChanged();
+            artAdapter.notifyItemRangeChanged( position,artArrayList.size());
+        }catch (Exception e){
             e.printStackTrace();
         }
     }

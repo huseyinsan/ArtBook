@@ -90,8 +90,11 @@ public class ArtActivity extends AppCompatActivity {
 
             cursor.close();
 
-
-
+                // Saved Data From Database can not be changed
+                binding.nameText.setEnabled(false);
+                binding.artistText.setEnabled(false);
+                binding.yearText.setEnabled(false);
+                binding.imageView.setClickable(false);
             }catch (Exception e){
                 e.printStackTrace();
             }
@@ -221,10 +224,12 @@ public class ArtActivity extends AppCompatActivity {
                     Intent intentToGallery = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
                     activityResultLauncher.launch(intentToGallery);
 
+
                 }  else{
                     //Permission denied
 
                     Toast.makeText(ArtActivity.this, "Permission needed!", Toast.LENGTH_SHORT).show();
+
                 }
             }
         });
