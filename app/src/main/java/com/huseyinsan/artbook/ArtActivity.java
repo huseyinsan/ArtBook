@@ -34,6 +34,17 @@ import com.huseyinsan.artbook.databinding.ActivityArtBinding;
 
 import java.io.ByteArrayOutputStream;
 
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
+import retrofit2.Retrofit;
+import retrofit2.converter.gson.GsonConverterFactory;
+import com.bumptech.glide.Glide;
+
+
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
+
 public class ArtActivity extends AppCompatActivity {
 
     private ActivityArtBinding binding;
@@ -41,6 +52,7 @@ public class ArtActivity extends AppCompatActivity {
     ActivityResultLauncher<String> requestPermissionLauncher;
     Bitmap selectedImage;
     SQLiteDatabase database;
+    private MetApiService apiService;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -49,6 +61,13 @@ public class ArtActivity extends AppCompatActivity {
         binding = ActivityArtBinding.inflate(getLayoutInflater());
         View view = binding.getRoot();
         setContentView(view);
+
+        Retrofit retrofit = new Retrofit.Builder()
+                .baseUrl("https://collectionapi.metmuseum.org/")
+                .addConverterFactory(GsonConverterFactory.create())
+                .build();
+
+        apiService = retrofit.create(MetApiService.class);
 
         registerLauncher();
 
@@ -104,42 +123,129 @@ public class ArtActivity extends AppCompatActivity {
 
     }
 
+    public void searchArt(View view) {
+        String query = binding.searchText.getText().toString();
+        if (query.isEmpty()) {
+            Toast.makeText(this, "Please enter a search term", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        apiService.searchObjects(query).enqueue(new Callback<SearchResponse>() {
+            @Override
+            public void onResponse(Call<SearchResponse> call, Response<SearchResponse> response) {
+                if (response.isSuccessful() && response.body() != null && response.body().objectIDs != null && !response.body().objectIDs.isEmpty()) {
+                    int firstObjectID = response.body().objectIDs.get(0);
+
+                    fetchArtDetails(firstObjectID);
+                }else{
+                    Toast.makeText(ArtActivity.this, "No results found", Toast.LENGTH_SHORT).show();
+                }
+            }
+
+            @Override
+            public void onFailure(Call<SearchResponse> call, Throwable t) {
+                Toast.makeText(ArtActivity.this, "Error: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private void fetchArtDetails(int objectID){
+        apiService.getObjectDetails(objectID).enqueue(new Callback<ArtObject>() {
+
+            @Override
+            public void onResponse(Call<ArtObject> call, Response<ArtObject> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    ArtObject artObject = response.body();
+                    binding.nameText.setText(artObject.title);
+                    binding.artistText.setText(artObject.artistDisplayName);
+                    binding.yearText.setText(artObject.objectDate);
+
+                    Glide.with(ArtActivity.this).load(artObject.primaryImageSmall)
+                            .placeholder(R.drawable.selectimage)
+                            .into(binding.imageView);
+
+                    binding.imageView.setClickable(false);
+                }else{
+                    Toast.makeText(ArtActivity.this, "Could not fetch details", Toast.LENGTH_SHORT).show();
+                }
+            }
+
+            @Override
+            public void onFailure(Call<ArtObject> call, Throwable t) {
+                Toast.makeText(ArtActivity.this,"Network Error: " + t.getMessage(),Toast.LENGTH_LONG).show();
+            }
+        });
+    }
 
     public void save(View view) {
 
-        String name = binding.nameText.getText().toString();
-        String artistName = binding.artistText.getText().toString();
-        String year = binding.yearText.getText().toString();
+            Bitmap bitmapToSave = null;
 
-        Bitmap smallImage = makeSmallerImages(selectedImage,300);
+            try {
+                Drawable drawable = binding.imageView.getDrawable();
 
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-        smallImage.compress(Bitmap.CompressFormat.PNG,50,outputStream);
-        byte[] byteArray = outputStream.toByteArray();
+                if (drawable instanceof BitmapDrawable) {
+                    bitmapToSave = ((BitmapDrawable) drawable).getBitmap();
+                }
 
-        try {
-            database = this.openOrCreateDatabase("Arts", MODE_PRIVATE,null );
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
 
-            database.execSQL("CREATE TABLE IF NOT EXISTS arts (id INTEGER PRIMARY KEY, artname VARCHAR, paintername VARCHAR, year VARCHAR, image BLOB)");
+            if (bitmapToSave == null) {
+                Toast.makeText(this, "Please search or select an image to save!", Toast.LENGTH_LONG).show();
+                return;
+            }
 
-            String sqlString = "INSERT INTO arts ( artname, paintername, year, image) VALUES(?,?,?,?) ";
-            SQLiteStatement sqLiteStatement = database.compileStatement(sqlString);
-            sqLiteStatement.bindString(1,name);
-            sqLiteStatement.bindString(2,artistName);
-            sqLiteStatement.bindString(3,year);
-            sqLiteStatement.bindBlob(4,byteArray);
-            sqLiteStatement.execute();
+            String name = binding.nameText.getText().toString();
+            String artistName = binding.artistText.getText().toString();
+            String year = binding.yearText.getText().toString();
 
-        }catch (Exception e){
-            e.printStackTrace();
-        }
+            Bitmap smallImage = makeSmallerImages(bitmapToSave, 300);
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            smallImage.compress(Bitmap.CompressFormat.PNG, 50, outputStream);
+            byte[] byteArray = outputStream.toByteArray();
 
+            try {
+                database = this.openOrCreateDatabase("Arts", MODE_PRIVATE, null);
+                database.execSQL("CREATE TABLE IF NOT EXISTS arts (id INTEGER PRIMARY KEY, artname VARCHAR, paintername VARCHAR, year VARCHAR, image BLOB)");
 
-        Intent intent = new Intent(ArtActivity.this,MainActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        startActivity(intent);
+                String info = getIntent().getStringExtra("info");
 
+                if (info.equals("new")) {
 
+                    String sqlString = "INSERT INTO arts (artname, paintername, year, image) VALUES (?, ?, ?, ?)";
+                    SQLiteStatement sqLiteStatement = database.compileStatement(sqlString);
+                    sqLiteStatement.bindString(1, name);
+                    sqLiteStatement.bindString(2, artistName);
+                    sqLiteStatement.bindString(3, year);
+                    sqLiteStatement.bindBlob(4, byteArray);
+                    sqLiteStatement.execute();
+                } else {
+
+                    int artID = getIntent().getIntExtra("artID", -1);
+                    if (artID == -1) {
+                        Toast.makeText(this, "ID for update not found!", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+
+                    String sqlString = "UPDATE arts SET artname = ?, paintername = ?, year = ?, image = ? WHERE id = ?";
+                    SQLiteStatement sqLiteStatement = database.compileStatement(sqlString);
+                    sqLiteStatement.bindString(1, name);
+                    sqLiteStatement.bindString(2, artistName);
+                    sqLiteStatement.bindString(3, year);
+                    sqLiteStatement.bindBlob(4, byteArray);
+                    sqLiteStatement.bindLong(5, artID);
+                    sqLiteStatement.execute();
+                }
+
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+            Intent intent = new Intent(ArtActivity.this, MainActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            startActivity(intent);
     }
 
     public Bitmap makeSmallerImages(Bitmap image,int maximumSize){
